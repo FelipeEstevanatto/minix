@@ -343,6 +343,10 @@ static void announce(void)
       "Copyright 2016, Vrije Universiteit, Amsterdam, The Netherlands\n",
       OS_RELEASE);
   printf("MINIX is open source software, see http://www.minix3.org\n");
+  printf("========================================\n");
+  printf("| Minix 3.4.0rc6 - SO - UNIFESP 1s2025 |\n");
+  printf("|    Projeto Pratico (I) - Equipe 7    |\n");
+  printf("========================================\n");
 }
 
 /*===========================================================================*
@@ -394,6 +398,12 @@ void minix_shutdown(int how)
 		     "It is safe to turn off your computer.\n");
   else
 	direct_print("MINIX will now reset.\n");
+
+  direct_print("=======================================\n");
+  direct_print("| ATE A PROXIMA - SO - UNIFESP 1s2025 |\n");
+  direct_print("|    Projeto Pratico (I) - Equipe 7   |\n");
+  direct_print("=======================================\n");
+
   arch_shutdown(how);
 }
 
