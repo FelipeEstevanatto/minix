@@ -134,6 +134,7 @@ void proc_init(void)
 		rp->p_scheduler = NULL;		/* no user space scheduler */
 		rp->p_priority = 0;		/* no priority */
 		rp->p_quantum_size_ms = 0;	/* no quantum size */
+		rp->p_remaining_time = 0; 
 
 		/* arch-specific initialization */
 		arch_proc_reset(rp);
@@ -1656,6 +1657,7 @@ void enqueue(
 #if DEBUG_SANITYCHECKS
   assert(runqueues_ok_local());
 #endif
+rp->p_remaining_time = rp->p_quantum_size_ms;
 }
 
 /*===========================================================================*
@@ -1784,34 +1786,51 @@ void dequeue(struct proc *rp)
  *===========================================================================*/
 static struct proc * pick_proc(void)
 {
-/* Decide who to run now.  A new process is selected and returned.
- * When a billable process is selected, record it in 'bill_ptr', so that the 
- * clock task can tell who to bill for system time.
- *
- * This function always uses the run queues of the local cpu!
+/* MODIFICACAO SRTF */
+/* Decide quem rodar agora. Com a lógica SRTF, esta função procura por
+ * todos os processos prontos em todas as filas e seleciona aquele com o
+ * menor valor de p_remaining_time.
  */
-  register struct proc *rp;			/* process to run */
+  struct proc *shortest_proc = NULL;      /* Ponteiro para o processo mais curto encontrado */
+  unsigned int min_time = (unsigned int)-1; /* Inicializa com o maior valor possível para um unsigned int */
   struct proc **rdy_head;
-  int q;				/* iterate over queues */
+  int q;                                  /* Iterador para as filas */
 
-  /* Check each of the scheduling queues for ready processes. The number of
-   * queues is defined in proc.h, and priorities are set in the task table.
-   * If there are no processes ready to run, return NULL.
-   */
   rdy_head = get_cpulocal_var(run_q_head);
-  for (q=0; q < NR_SCHED_QUEUES; q++) {	
-	if(!(rp = rdy_head[q])) {
-		TRACE(VF_PICKPROC, printf("cpu %d queue %d empty\n", cpuid, q););
-		continue;
-	}
-	assert(proc_is_runnable(rp));
-	if (priv(rp)->s_flags & BILLABLE)	 	
-		get_cpulocal_var(bill_ptr) = rp; /* bill for system time */
-	return rp;
-  }
-  return NULL;
-}
 
+  /* Itera por cada uma das 16 filas de prioridade */
+  for (q = 0; q < NR_SCHED_QUEUES; q++) {
+      struct proc *rp;
+
+      /* Itera por cada processo 'rp' na fila 'q' atual */
+      for (rp = rdy_head[q]; rp != NULL; rp = rp->p_nextready) {
+          
+          /* Verifica se o processo é executável.
+           * A macro proc_is_runnable verifica se p_rts_flags é zero.
+           */
+          if (proc_is_runnable(rp)) {
+              
+              /* Se o tempo restante deste processo for o menor encontrado até agora... */
+              if (rp->p_remaining_time < min_time) {
+                  /* ... então ele é o nosso novo candidato a processo mais curto. */
+                  min_time = rp->p_remaining_time;
+                  shortest_proc = rp;
+              }
+          }
+      }
+  }
+
+  /* Se encontramos um processo (shortest_proc não é NULL), o definimos
+   * como o próximo a ser cobrado pelo tempo de sistema, se aplicável.
+   * Esta parte é importante para a contabilidade do sistema.
+   */
+  if (shortest_proc && (priv(shortest_proc)->s_flags & BILLABLE)) {
+      get_cpulocal_var(bill_ptr) = shortest_proc;
+  }
+  
+  /* Retorna o processo mais curto encontrado, ou NULL se não houver nenhum pronto. */
+  return shortest_proc;
+}
 /*===========================================================================*
  *				endpoint_lookup				     *
  *===========================================================================*/
