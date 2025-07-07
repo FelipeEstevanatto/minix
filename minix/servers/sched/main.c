@@ -33,6 +33,13 @@ int main(void)
 
 	/* This is SCHED's main loop - get work and do it, forever and forever. */
 	while (TRUE) {
+		/* MODIFICACAO SRTF: Neutraliza o servidor sched. */
+		/* A chamada pause() suspende o processo indefinidamente, impedindo
+		 * que ele envie políticas de escalonamento para o kernel,
+		 * que agora tem sua própria lógica SRTF no arquivo proc.c.
+		 * O código original do loop nunca será alcançado. */
+		pause();
+
 		int ipc_status;
 
 		/* Wait for the next message and extract useful information from it. */
@@ -88,10 +95,10 @@ int main(void)
 
 		/* Send reply. */
 		if (result != SUSPEND) {
-			m_in.m_type = result;  		/* build reply message */
+			m_in.m_type = result; 		/* build reply message */
 			reply(who_e, &m_in);		/* send it away */
 		}
- 	}
+	}
 	return(OK);
 }
 
@@ -106,7 +113,7 @@ static void reply(endpoint_t who_e, message *m_ptr)
 }
 
 /*===========================================================================*
- *			       sef_local_startup			     *
+ *			 	sef_local_startup			     *
  *===========================================================================*/
 static void sef_local_startup(void)
 {
@@ -121,7 +128,7 @@ static void sef_local_startup(void)
 }
 
 /*===========================================================================*
- *		            sef_cb_init_fresh                                *
+ *		 		sef_cb_init_fresh			     *
  *===========================================================================*/
 static int sef_cb_init_fresh(int UNUSED(type), sef_init_info_t *UNUSED(info))
 {
@@ -134,4 +141,3 @@ static int sef_cb_init_fresh(int UNUSED(type), sef_init_info_t *UNUSED(info))
 
 	return(OK);
 }
-
