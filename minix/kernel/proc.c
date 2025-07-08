@@ -57,7 +57,7 @@ static int deadlock(int function, register struct proc *caller,
 static int try_async(struct proc *caller_ptr);
 static int try_one(endpoint_t receive_e, struct proc *src_ptr,
 	struct proc *dst_ptr);
-static struct proc * pick_proc(void);
+static struct proc * (void);
 static void enqueue_head(struct proc *rp);
 
 /* all idles share the same idle_priv structure */
@@ -336,7 +336,7 @@ not_runnable_pick_new:
 	 * timer interrupt the execution resumes here and we can pick another
 	 * process. If there is still nothing runnable we "schedule" IDLE again
 	 */
-	while (!(p = pick_proc())) {
+	while (!(p = ())) {
 		idle();
 	}
 
@@ -1790,48 +1790,50 @@ void dequeue(struct proc *rp)
  *===========================================================================*/
 static struct proc * pick_proc(void)
 {
-/* MODIFICACAO SRTF com DEBUG */
-    struct proc *shortest_proc = NULL;
-    unsigned int min_time = (unsigned int)-1;
-    struct proc **rdy_head;
-    int q;
-    int runnable_found = 0; /* Flag para sabermos se encontramos algum processo executavel */
+/* MODIFICACAO SRTF - MODO DEPURACAO ESPIA */
 
-    /* Imprime uma mensagem toda vez que a funcao e chamada */
-    printf("pick_proc: Entrando na funcao para escolher um processo...\n");
+    struct proc **rdy_head;
+    struct proc *rp;
+    int q;
+
+    printf("--- INICIANDO pick_proc (MODO ESPIAO) ---\n");
 
     rdy_head = get_cpulocal_var(run_q_head);
 
+    /* Parte 1: A Espionagem. Vamos imprimir o estado de todas as filas. */
+    printf("Estado das filas de prontos:\n");
     for (q = 0; q < NR_SCHED_QUEUES; q++) {
-        struct proc *rp;
-        for (rp = rdy_head[q]; rp != NULL; rp = rp->p_nextready) {
-            
-            if (proc_is_runnable(rp)) {
-                runnable_found = 1; /* Marca que encontramos pelo menos um */
-                if (rp->p_remaining_time < min_time) {
-                    min_time = rp->p_remaining_time;
-                    shortest_proc = rp;
-                    /* Imprime o novo candidato encontrado */
-                    printf("pick_proc: Novo candidato -> proc %d com tempo %u\n", rp->p_nr, min_time);
-                }
-            }
+        rp = rdy_head[q];
+        if (!rp) {
+            /* Se a fila esta vazia, nao imprime nada para nao poluir a tela */
+            continue;
         }
+        printf("  Fila %d: ", q);
+        while(rp) {
+            printf("[p%d, t%u] -> ", rp->p_nr, rp->p_remaining_time);
+            rp = rp->p_nextready;
+        }
+        printf("NULL\n");
     }
-    
-    if (!runnable_found) {
-         printf("pick_proc: AVISO! Nao encontrei nenhum processo executavel em nenhuma fila.\n");
+    printf("----------------------------------------\n");
+
+
+    /* Parte 2: A Tentativa. Usaremos a LOGICA ORIGINAL do Minix para ver se o sistema boota. */
+    /* Se isso funcionar, o problema esta na nossa logica de selecao SRTF. */
+    printf("Tentando escolher processo com a logica original...\n");
+    for (q=0; q < NR_SCHED_QUEUES; q++) {	
+        if((rp = rdy_head[q])) {
+            printf("Logica original escolheu processo %d da fila %d.\n", rp->p_nr, q);
+            assert(proc_is_runnable(rp));
+            if (priv(rp)->s_flags & BILLABLE)	 	
+                get_cpulocal_var(bill_ptr) = rp; /* bill for system time */
+            return rp;
+        }
     }
 
-    if (shortest_proc) {
-        printf("pick_proc: Saindo. Processo escolhido: %d\n", shortest_proc->p_nr);
-        if (priv(shortest_proc)->s_flags & BILLABLE) {
-            get_cpulocal_var(bill_ptr) = shortest_proc;
-        }
-    } else {
-        printf("pick_proc: ERRO FATAL? Saindo sem escolher nenhum processo (retornando NULL).\n");
-    }
-    
-    return shortest_proc;
+    /* Se chegamos aqui, nenhuma logica encontrou um processo. */
+    printf("AVISO: NENHUM PROCESSO PRONTO ENCONTRADO. RETORNANDO NULL.\n");
+    return NULL;
 }
 /*===========================================================================*
  *				endpoint_lookup				     *
