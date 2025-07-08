@@ -1657,7 +1657,11 @@ void enqueue(
 #if DEBUG_SANITYCHECKS
   assert(runqueues_ok_local());
 #endif
-rp->p_remaining_time = rp->p_quantum_size_ms;
+if (rp->p_quantum_size_ms > 0) {
+		rp->p_remaining_time = rp->p_quantum_size_ms;
+	} else {
+		rp->p_remaining_time = 10; /* Valor padrao de 10ms para processos sem quantum */
+	}
 }
 
 /*===========================================================================*
@@ -1786,50 +1790,48 @@ void dequeue(struct proc *rp)
  *===========================================================================*/
 static struct proc * pick_proc(void)
 {
-/* MODIFICACAO SRTF */
-/* Decide quem rodar agora. Com a lógica SRTF, esta função procura por
- * todos os processos prontos em todas as filas e seleciona aquele com o
- * menor valor de p_remaining_time.
- */
-  struct proc *shortest_proc = NULL;      /* Ponteiro para o processo mais curto encontrado */
-  unsigned int min_time = (unsigned int)-1; /* Inicializa com o maior valor possível para um unsigned int */
-  struct proc **rdy_head;
-  int q;                                  /* Iterador para as filas */
+/* MODIFICACAO SRTF com DEBUG */
+    struct proc *shortest_proc = NULL;
+    unsigned int min_time = (unsigned int)-1;
+    struct proc **rdy_head;
+    int q;
+    int runnable_found = 0; /* Flag para sabermos se encontramos algum processo executavel */
 
-  rdy_head = get_cpulocal_var(run_q_head);
+    /* Imprime uma mensagem toda vez que a funcao e chamada */
+    printf("pick_proc: Entrando na funcao para escolher um processo...\n");
 
-  /* Itera por cada uma das 16 filas de prioridade */
-  for (q = 0; q < NR_SCHED_QUEUES; q++) {
-      struct proc *rp;
+    rdy_head = get_cpulocal_var(run_q_head);
 
-      /* Itera por cada processo 'rp' na fila 'q' atual */
-      for (rp = rdy_head[q]; rp != NULL; rp = rp->p_nextready) {
-          
-          /* Verifica se o processo é executável.
-           * A macro proc_is_runnable verifica se p_rts_flags é zero.
-           */
-          if (proc_is_runnable(rp)) {
-              
-              /* Se o tempo restante deste processo for o menor encontrado até agora... */
-              if (rp->p_remaining_time < min_time) {
-                  /* ... então ele é o nosso novo candidato a processo mais curto. */
-                  min_time = rp->p_remaining_time;
-                  shortest_proc = rp;
-              }
-          }
-      }
-  }
+    for (q = 0; q < NR_SCHED_QUEUES; q++) {
+        struct proc *rp;
+        for (rp = rdy_head[q]; rp != NULL; rp = rp->p_nextready) {
+            
+            if (proc_is_runnable(rp)) {
+                runnable_found = 1; /* Marca que encontramos pelo menos um */
+                if (rp->p_remaining_time < min_time) {
+                    min_time = rp->p_remaining_time;
+                    shortest_proc = rp;
+                    /* Imprime o novo candidato encontrado */
+                    printf("pick_proc: Novo candidato -> proc %d com tempo %u\n", rp->p_nr, min_time);
+                }
+            }
+        }
+    }
+    
+    if (!runnable_found) {
+         printf("pick_proc: AVISO! Nao encontrei nenhum processo executavel em nenhuma fila.\n");
+    }
 
-  /* Se encontramos um processo (shortest_proc não é NULL), o definimos
-   * como o próximo a ser cobrado pelo tempo de sistema, se aplicável.
-   * Esta parte é importante para a contabilidade do sistema.
-   */
-  if (shortest_proc && (priv(shortest_proc)->s_flags & BILLABLE)) {
-      get_cpulocal_var(bill_ptr) = shortest_proc;
-  }
-  
-  /* Retorna o processo mais curto encontrado, ou NULL se não houver nenhum pronto. */
-  return shortest_proc;
+    if (shortest_proc) {
+        printf("pick_proc: Saindo. Processo escolhido: %d\n", shortest_proc->p_nr);
+        if (priv(shortest_proc)->s_flags & BILLABLE) {
+            get_cpulocal_var(bill_ptr) = shortest_proc;
+        }
+    } else {
+        printf("pick_proc: ERRO FATAL? Saindo sem escolher nenhum processo (retornando NULL).\n");
+    }
+    
+    return shortest_proc;
 }
 /*===========================================================================*
  *				endpoint_lookup				     *
