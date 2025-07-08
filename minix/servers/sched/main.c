@@ -8,7 +8,7 @@
 
 #include "sched.h"
 #include "schedproc.h"
-
+#include <unistd.h>
 /* Declare some local functions. */
 static void reply(endpoint_t whom, message *m_ptr);
 static void sef_local_startup(void);
