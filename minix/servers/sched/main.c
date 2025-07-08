@@ -8,7 +8,7 @@
 
 #include "sched.h"
 #include "schedproc.h"
-#include <unistd.h>
+
 /* Declare some local functions. */
 static void reply(endpoint_t whom, message *m_ptr);
 static void sef_local_startup(void);
@@ -33,13 +33,16 @@ int main(void)
 
 	/* This is SCHED's main loop - get work and do it, forever and forever. */
 	while (TRUE) {
-		/* MODIFICACAO SRTF: Neutraliza o servidor sched. */
-		/* A chamada pause() suspende o processo indefinidamente, impedindo
-		 * que ele envie políticas de escalonamento para o kernel,
-		 * que agora tem sua própria lógica SRTF no arquivo proc.c.
-		 * O código original do loop nunca será alcançado. */
-		pause();
+		/* MODIFICACAO SRTF: Solução definitiva para neutralizar o sched.
+		 * Em vez de pause(), que causa um erro de link, usamos um loop
+		 * infinito vazio. O processo sched vai ficar preso aqui para sempre,
+		 * sem consumir CPU (pois nunca será escalonado) e sem interferir
+		 * com a nossa lógica no kernel.
+		 */
+		for (;;) {
+		}
 
+		/* O código abaixo nunca será alcançado. */
 		int ipc_status;
 
 		/* Wait for the next message and extract useful information from it. */
