@@ -33,16 +33,6 @@ int main(void)
 
 	/* This is SCHED's main loop - get work and do it, forever and forever. */
 	while (TRUE) {
-		/* MODIFICACAO SRTF: Solução definitiva para neutralizar o sched.
-		 * Em vez de pause(), que causa um erro de link, usamos um loop
-		 * infinito vazio. O processo sched vai ficar preso aqui para sempre,
-		 * sem consumir CPU (pois nunca será escalonado) e sem interferir
-		 * com a nossa lógica no kernel.
-		 */
-		for (;;) {
-		}
-
-		/* O código abaixo nunca será alcançado. */
 		int ipc_status;
 
 		/* Wait for the next message and extract useful information from it. */
@@ -98,10 +88,10 @@ int main(void)
 
 		/* Send reply. */
 		if (result != SUSPEND) {
-			m_in.m_type = result; 		/* build reply message */
+			m_in.m_type = result;  		/* build reply message */
 			reply(who_e, &m_in);		/* send it away */
 		}
-	}
+ 	}
 	return(OK);
 }
 
@@ -116,7 +106,7 @@ static void reply(endpoint_t who_e, message *m_ptr)
 }
 
 /*===========================================================================*
- *			 	sef_local_startup			     *
+ *			       sef_local_startup			     *
  *===========================================================================*/
 static void sef_local_startup(void)
 {
@@ -131,7 +121,7 @@ static void sef_local_startup(void)
 }
 
 /*===========================================================================*
- *		 		sef_cb_init_fresh			     *
+ *		            sef_cb_init_fresh                                *
  *===========================================================================*/
 static int sef_cb_init_fresh(int UNUSED(type), sef_init_info_t *UNUSED(info))
 {
