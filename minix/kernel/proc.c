@@ -1784,33 +1784,40 @@ void dequeue(struct proc *rp)
  *===========================================================================*/
 static struct proc * pick_proc(void)
 {
-/* Decide who to run now.  A new process is selected and returned.
- * When a billable process is selected, record it in 'bill_ptr', so that the 
- * clock task can tell who to bill for system time.
- *
- * This function always uses the run queues of the local cpu!
- */
-  register struct proc *rp;			/* process to run */
-  struct proc **rdy_head;
-  int q;				/* iterate over queues */
+	/* Escolher o processo de maior prioridade (menor valor numérico).
+	 * Se houver um processo com prioridade maior que o atual, ele deve ser escalonado.
+	 */
+	register struct proc *rp;
+	struct proc **rdy_head;
+	int q;
 
-  /* Check each of the scheduling queues for ready processes. The number of
-   * queues is defined in proc.h, and priorities are set in the task table.
-   * If there are no processes ready to run, return NULL.
-   */
-  rdy_head = get_cpulocal_var(run_q_head);
-  for (q=0; q < NR_SCHED_QUEUES; q++) {	
-	if(!(rp = rdy_head[q])) {
-		TRACE(VF_PICKPROC, printf("cpu %d queue %d empty\n", cpuid, q););
-		continue;
+	/* Ponteiro para o processo atualmente em execução */
+	struct proc *current = get_cpulocal_var(proc_ptr);
+
+	/* Inicializa ponteiro para as filas */
+	rdy_head = get_cpulocal_var(run_q_head);
+
+	/* Percorre as filas por ordem de prioridade */
+	for (q = 0; q < NR_SCHED_QUEUES; q++) {
+		if (!(rp = rdy_head[q])) {
+			continue; /* fila vazia, tenta próxima */
+		}
+
+		assert(proc_is_runnable(rp));
+
+		/* Se o processo encontrado tem prioridade maior que o atual (ou se não há atual), seleciona-o */
+		if (!current || rp->p_priority < current->p_priority) {
+			if (priv(rp)->s_flags & BILLABLE)
+				get_cpulocal_var(bill_ptr) = rp; /* atualiza cobrança */
+
+			return rp;
+		}
 	}
-	assert(proc_is_runnable(rp));
-	if (priv(rp)->s_flags & BILLABLE)	 	
-		get_cpulocal_var(bill_ptr) = rp; /* bill for system time */
-	return rp;
-  }
-  return NULL;
+
+	/* Nenhum processo pronto */
+	return NULL;
 }
+
 
 /*===========================================================================*
  *				endpoint_lookup				     *
