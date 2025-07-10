@@ -1788,33 +1788,33 @@ void dequeue(struct proc *rp)
  *===========================================================================*/
 static struct proc * pick_proc(void)
 {
-/* MODIFICACAO SRTF - MODO "TESTE DE FUMAÇA" */
-/* Esta é a versão mais simples possível para ver se o sistema consegue
- * chamar esta função e sobreviver. Ela usa a lógica original do Minix.
- * Se o sistema iniciar com este código, o problema está 100% na forma
- * como estávamos tentando ler as filas de processos.
- */
+    struct proc *shortest_proc = NULL;
+    unsigned int min_time = (unsigned int)-1;
     struct proc **rdy_head;
-    struct proc *rp;
     int q;
 
     rdy_head = get_cpulocal_var(run_q_head);
-    
-    /* Tenta escolher um processo usando a lógica original do Minix */
-    for (q=0; q < NR_SCHED_QUEUES; q++) {	
-        if((rp = rdy_head[q])) {
-            /* Se encontrou um, retorna imediatamente */
-            assert(proc_is_runnable(rp));
-            if (priv(rp)->s_flags & BILLABLE)	 	
-                get_cpulocal_var(bill_ptr) = rp;
-            return rp;
+
+    for (q = 0; q < NR_SCHED_QUEUES; q++) {
+        struct proc *rp;
+        for (rp = rdy_head[q]; rp != NULL; rp = rp->p_nextready) {
+            
+            if (proc_is_runnable(rp)) {
+                if (rp->p_remaining_time < min_time) {
+                    min_time = rp->p_remaining_time;
+                    shortest_proc = rp;
+                }
+            }
         }
     }
-
-    /* Se não encontrou absolutamente ninguém, retorna NULL.
-     * A função switch_to_user() vai chamar idle() neste caso.
-     */
-    return NULL;
+    
+    if (shortest_proc) {
+        if (priv(shortest_proc)->s_flags & BILLABLE) {
+            get_cpulocal_var(bill_ptr) = shortest_proc;
+        }
+    }
+    
+    return shortest_proc;
 }
 /*===========================================================================*
  *				endpoint_lookup				     *
