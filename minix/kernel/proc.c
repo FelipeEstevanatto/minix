@@ -1788,52 +1788,34 @@ void dequeue(struct proc *rp)
  *===========================================================================*/
 static struct proc * pick_proc(void)
 {
-/* MODIFICACAO SRTF - MODO DEPURACAO ESPIA */
-
+/* MODIFICACAO SRTF - MODO "TESTE DE FUMAÇA" */
+/* Esta é a versão mais simples possível para ver se o sistema consegue
+ * chamar esta função e sobreviver. Ela usa a lógica original do Minix.
+ * Se o sistema iniciar com este código, o problema está 100% na forma
+ * como estávamos tentando ler as filas de processos.
+ */
     struct proc **rdy_head;
     struct proc *rp;
     int q;
 
-    printf("--- INICIANDO pick_proc (MODO ESPIAO) ---\n");
-
     rdy_head = get_cpulocal_var(run_q_head);
-
-    /* Parte 1: A Espionagem. Vamos imprimir o estado de todas as filas. */
-    printf("Estado das filas de prontos:\n");
-    for (q = 0; q < NR_SCHED_QUEUES; q++) {
-        rp = rdy_head[q];
-        if (!rp) {
-            /* Se a fila esta vazia, nao imprime nada para nao poluir a tela */
-            continue;
-        }
-        printf("  Fila %d: ", q);
-        while(rp) {
-            printf("[p%d, t%u] -> ", rp->p_nr, rp->p_remaining_time);
-            rp = rp->p_nextready;
-        }
-        printf("NULL\n");
-    }
-    printf("----------------------------------------\n");
-
-
-    /* Parte 2: A Tentativa. Usaremos a LOGICA ORIGINAL do Minix para ver se o sistema boota. */
-    /* Se isso funcionar, o problema esta na nossa logica de selecao SRTF. */
-    printf("Tentando escolher processo com a logica original...\n");
+    
+    /* Tenta escolher um processo usando a lógica original do Minix */
     for (q=0; q < NR_SCHED_QUEUES; q++) {	
         if((rp = rdy_head[q])) {
-            printf("Logica original escolheu processo %d da fila %d.\n", rp->p_nr, q);
+            /* Se encontrou um, retorna imediatamente */
             assert(proc_is_runnable(rp));
             if (priv(rp)->s_flags & BILLABLE)	 	
-                get_cpulocal_var(bill_ptr) = rp; /* bill for system time */
+                get_cpulocal_var(bill_ptr) = rp;
             return rp;
         }
     }
 
-    /* Se chegamos aqui, nenhuma logica encontrou um processo. */
-    printf("AVISO: NENHUM PROCESSO PRONTO ENCONTRADO. RETORNANDO NULL.\n");
+    /* Se não encontrou absolutamente ninguém, retorna NULL.
+     * A função switch_to_user() vai chamar idle() neste caso.
+     */
     return NULL;
 }
-
 /*===========================================================================*
  *				endpoint_lookup				     *
  *===========================================================================*/
