@@ -15,7 +15,7 @@
  * overall performance of the system. A large fraction of the code deals with
  * list manipulation. To make this both easy to understand and fast to execute 
  * pointer pointers are used throughout the code. Pointer pointers prevent
- * exceptions for the head or tail of a linked list. 
+ * exceptions for the head or tail of a linked list.  
  *
  *  node_t *queue, *new_node;	// assume these as global variables
  *  node_t **xpp = &queue; 	// get pointer pointer to head of queue 
@@ -57,7 +57,7 @@ static int deadlock(int function, register struct proc *caller,
 static int try_async(struct proc *caller_ptr);
 static int try_one(endpoint_t receive_e, struct proc *src_ptr,
 	struct proc *dst_ptr);
-static struct proc * pick_proc(void);
+static struct proc * (void);
 static void enqueue_head(struct proc *rp);
 
 /* all idles share the same idle_priv structure */
@@ -134,7 +134,7 @@ void proc_init(void)
 		rp->p_scheduler = NULL;		/* no user space scheduler */
 		rp->p_priority = 0;		/* no priority */
 		rp->p_quantum_size_ms = 0;	/* no quantum size */
-
+		rp->p_remaining_time = 0;
 		/* arch-specific initialization */
 		arch_proc_reset(rp);
 	}
@@ -335,7 +335,7 @@ not_runnable_pick_new:
 	 * timer interrupt the execution resumes here and we can pick another
 	 * process. If there is still nothing runnable we "schedule" IDLE again
 	 */
-	while (!(p = pick_proc())) {
+	while (!(p = ())) {
 		idle();
 	}
 
@@ -1592,44 +1592,75 @@ asyn_error:
 /*===========================================================================*
  *				enqueue					     * 
  *===========================================================================*/
-void enqueue(struct proc *rp)
+void enqueue(
+  register struct proc *rp	/* this process is now runnable */
+)
 {
-    int q;
-    struct proc **rdy_head, **rdy_tail;
-    struct proc *p_atual;
+/* Add 'rp' to one of the queues of runnable processes.  This function is 
+ * responsible for inserting a process into one of the scheduling queues. 
+ * The mechanism is implemented here.   The actual scheduling policy is
+ * defined in sched() and pick_proc().
+ *
+ * This function can be used x-cpu as it always uses the queues of the cpu the
+ * process is assigned to.
+ */
+  int q = rp->p_priority;	 		/* scheduling queue to use */
+  struct proc **rdy_head, **rdy_tail;
 
-    assert(proc_is_runnable(rp));
+  assert(proc_is_runnable(rp));
 
-    // Se for um processo de usuário e seu tempo restante acabou, reinicia para um novo burst.
-    if (rp->p_nr >= 0 && rp->p_tempo_restante == 0) {
-        // ---- SUGESTÃO DE MELHORIA ----
-        // Atribui um tempo de burst variável (entre 50 e 149) usando o PID
-        // para que o SRTF tenha processos de tamanhos diferentes para escalonar.
-        rp->p_tempo_total = 50 + (rp->p_nr % 100); 
-        rp->p_tempo_restante = rp->p_tempo_total;
-    }
+  assert(q >= 0);
 
-    q = rp->p_priority;
-    rdy_head = get_cpu_var(rp->p_cpu, run_q_head);
-    rdy_tail = get_cpu_var(rp->p_cpu, run_q_tail);
+  rdy_head = get_cpu_var(rp->p_cpu, run_q_head);
+  rdy_tail = get_cpu_var(rp->p_cpu, run_q_tail);
 
-    if (!rdy_head[q]) {
-        rdy_head[q] = rdy_tail[q] = rp;
-        rp->p_nextready = NULL;
-    } else {
-        rdy_tail[q]->p_nextready = rp;
-        rdy_tail[q] = rp;
-        rp->p_nextready = NULL;
-    }
+  /* Now add the process to the queue. */
+  if (!rdy_head[q]) {		/* add to empty queue */
+      rdy_head[q] = rdy_tail[q] = rp; 		/* create a new queue */
+      rp->p_nextready = NULL;		/* mark new end */
+  } 
+  else {					/* add to tail of queue */
+      rdy_tail[q]->p_nextready = rp;		/* chain tail of queue */	
+      rdy_tail[q] = rp;				/* set new queue tail */
+      rp->p_nextready = NULL;		/* mark new end */
+  }
 
-    // Lógica de Preempção do SRTF
-    p_atual = get_cpulocal_var(proc_ptr);
-    if (p_atual->p_nr >= 0 && proc_is_runnable(p_atual) &&
-        rp->p_tempo_restante < p_atual->p_tempo_restante) {
-        RTS_SET(p_atual, RTS_PREEMPTED);
-    }
+  if (cpuid == rp->p_cpu) {
+	  /*
+	   * enqueueing a process with a higher priority than the current one,
+	   * it gets preempted. The current process must be preemptible. Testing
+	   * the priority also makes sure that a process does not preempt itself
+	   */
+	  struct proc * p;
+	  p = get_cpulocal_var(proc_ptr);
+	  assert(p);
+	  if((p->p_priority > rp->p_priority) &&
+			  (priv(p)->s_flags & PREEMPTIBLE))
+		  RTS_SET(p, RTS_PREEMPTED); /* calls dequeue() */
+  }
+#ifdef CONFIG_SMP
+  /*
+   * if the process was enqueued on a different cpu and the cpu is idle, i.e.
+   * the time is off, we need to wake up that cpu and let it schedule this new
+   * process
+   */
+  else if (get_cpu_var(rp->p_cpu, cpu_is_idle)) {
+	  smp_schedule(rp->p_cpu);
+  }
+#endif
 
-    read_tsc_64(&(rp->p_accounting.enter_queue));
+  /* Make note of when this process was added to queue */
+  read_tsc_64(&(get_cpulocal_var(proc_ptr)->p_accounting.enter_queue));
+
+
+#if DEBUG_SANITYCHECKS
+  assert(runqueues_ok_local());
+#endif
+if (rp->p_quantum_size_ms > 0) {
+		rp->p_remaining_time = rp->p_quantum_size_ms;
+	} else {
+		rp->p_remaining_time = 10; /* Valor padrao de 10ms para processos sem quantum */
+	}
 }
 
 /*===========================================================================*
@@ -1687,67 +1718,120 @@ static void enqueue_head(struct proc *rp)
 /*===========================================================================*
  *				dequeue					     * 
  *===========================================================================*/
-void dequeue(struct proc *rp) {
-    int q = rp->p_priority;
-    struct proc **xpp;
-    struct proc *prev_xp;
-    u64_t tsc, tsc_delta;
-    struct proc **rdy_tail;
+void dequeue(struct proc *rp)
+/* this process is no longer runnable */
+{
+/* A process must be removed from the scheduling queues, for example, because
+ * it has blocked.  If the currently active process is removed, a new process
+ * is picked to run by calling pick_proc().
+ *
+ * This function can operate x-cpu as it always removes the process from the
+ * queue of the cpu the process is currently assigned to.
+ */
+  int q = rp->p_priority;		/* queue to use */
+  struct proc **xpp;			/* iterate over queue */
+  struct proc *prev_xp;
+  u64_t tsc, tsc_delta;
 
-    assert(proc_ptr_ok(rp));
-    assert(!proc_is_runnable(rp));
-    assert (!iskernelp(rp) || *priv(rp)->s_stack_guard == STACK_GUARD);
+  struct proc **rdy_tail;
 
-    rdy_tail = get_cpu_var(rp->p_cpu, run_q_tail);
-    prev_xp = NULL;
-    for (xpp = get_cpu_var_ptr(rp->p_cpu, run_q_head[q]); *xpp; xpp = &(*xpp)->p_nextready) {
-        if (*xpp == rp) {
-            *xpp = (*xpp)->p_nextready;
-            if (rp == rdy_tail[q]) {
-                rdy_tail[q] = prev_xp;
-            }
-            break;
-        }
-        prev_xp = *xpp;
-    }
+  assert(proc_ptr_ok(rp));
+  assert(!proc_is_runnable(rp));
 
-    rp->p_accounting.dequeues++;
+  /* Side-effect for kernel: check if the task's stack still is ok? */
+  assert (!iskernelp(rp) || *priv(rp)->s_stack_guard == STACK_GUARD);
 
-    if (rp->p_accounting.enter_queue) {
-        read_tsc_64(&tsc);
-        tsc_delta = tsc - rp->p_accounting.enter_queue;
-        rp->p_accounting.time_in_queue = rp->p_accounting.time_in_queue + tsc_delta;
-        rp->p_accounting.enter_queue = 0;
-    }
+  rdy_tail = get_cpu_var(rp->p_cpu, run_q_tail);
 
-    rp->p_dequeued = get_monotonic();
+  /* Now make sure that the process is not in its ready queue. Remove the 
+   * process if it is found. A process can be made unready even if it is not 
+   * running by being sent a signal that kills it.
+   */
+  prev_xp = NULL;				
+  for (xpp = get_cpu_var_ptr(rp->p_cpu, run_q_head[q]); *xpp;
+		  xpp = &(*xpp)->p_nextready) {
+      if (*xpp == rp) {				/* found process to remove */
+          *xpp = (*xpp)->p_nextready;		/* replace with next chain */
+          if (rp == rdy_tail[q]) {		/* queue tail removed */
+              rdy_tail[q] = prev_xp;		/* set new tail */
+	  }
+
+          break;
+      }
+      prev_xp = *xpp;				/* save previous in chain */
+  }
+
+
+  /* Process accounting for scheduling */
+  rp->p_accounting.dequeues++;
+
+  /* this is not all that accurate on virtual machines, especially with
+     IO bound processes that only spend a short amount of time in the queue
+     at a time. */
+  if (rp->p_accounting.enter_queue) {
+	read_tsc_64(&tsc);
+	tsc_delta = tsc - rp->p_accounting.enter_queue;
+	rp->p_accounting.time_in_queue = rp->p_accounting.time_in_queue +
+		tsc_delta;
+	rp->p_accounting.enter_queue = 0;
+  }
+
+  /* For ps(1), remember when the process was last dequeued. */
+  rp->p_dequeued = get_monotonic();
+
+#if DEBUG_SANITYCHECKS
+  assert(runqueues_ok_local());
+#endif
 }
 /*===========================================================================*
  *				pick_proc				     * 
  *===========================================================================*/
-static struct proc * pick_proc(void) {
-    struct proc *p;
-    struct proc *shortest_proc = NULL;
-    int q;
+static struct proc * pick_proc(void)
+{
+/* MODIFICACAO SRTF - MODO DEPURACAO ESPIA */
+
     struct proc **rdy_head;
+    struct proc *rp;
+    int q;
+
+    printf("--- INICIANDO pick_proc (MODO ESPIAO) ---\n");
 
     rdy_head = get_cpulocal_var(run_q_head);
 
-    // Itera por todas as filas de prioridade
+    /* Parte 1: A Espionagem. Vamos imprimir o estado de todas as filas. */
+    printf("Estado das filas de prontos:\n");
     for (q = 0; q < NR_SCHED_QUEUES; q++) {
-        // Itera por todos os processos na fila atual
-        for (p = rdy_head[q]; p != NULL; p = p->p_nextready) {
-            // Considera apenas processos de usuário que estão prontos para rodar
-            if (p->p_nr >= 0 && proc_is_runnable(p)) {
-                // Se é o primeiro processo pronto que encontramos, ou 
-                // se o tempo dele é menor que o do mais curto já encontrado...
-                if (shortest_proc == NULL || p->p_tempo_restante < shortest_proc->p_tempo_restante) {
-                    shortest_proc = p; // ... ele se torna o novo candidato
-                }
-            }
+        rp = rdy_head[q];
+        if (!rp) {
+            /* Se a fila esta vazia, nao imprime nada para nao poluir a tela */
+            continue;
+        }
+        printf("  Fila %d: ", q);
+        while(rp) {
+            printf("[p%d, t%u] -> ", rp->p_nr, rp->p_remaining_time);
+            rp = rp->p_nextready;
+        }
+        printf("NULL\n");
+    }
+    printf("----------------------------------------\n");
+
+
+    /* Parte 2: A Tentativa. Usaremos a LOGICA ORIGINAL do Minix para ver se o sistema boota. */
+    /* Se isso funcionar, o problema esta na nossa logica de selecao SRTF. */
+    printf("Tentando escolher processo com a logica original...\n");
+    for (q=0; q < NR_SCHED_QUEUES; q++) {	
+        if((rp = rdy_head[q])) {
+            printf("Logica original escolheu processo %d da fila %d.\n", rp->p_nr, q);
+            assert(proc_is_runnable(rp));
+            if (priv(rp)->s_flags & BILLABLE)	 	
+                get_cpulocal_var(bill_ptr) = rp; /* bill for system time */
+            return rp;
         }
     }
-    return shortest_proc; // Retorna o processo mais curto encontrado ou NULL
+
+    /* Se chegamos aqui, nenhuma logica encontrou um processo. */
+    printf("AVISO: NENHUM PROCESSO PRONTO ENCONTRADO. RETORNANDO NULL.\n");
+    return NULL;
 }
 
 /*===========================================================================*
