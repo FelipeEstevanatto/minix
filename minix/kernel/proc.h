@@ -20,8 +20,6 @@
 #include "priv.h"
 
 struct proc {
-  unsigned int p_tempo_total; // Guarda o "burst" total de um processo
-  unsigned int p_tempo_restante; // Guarda o tempo que ainda falta para o burst acabar
   struct stackframe_s p_reg;	/* process' registers saved in stack frame */
   struct segframe p_seg;	/* segment descriptors */
   proc_nr_t p_nr;		/* number of this process (for fast access) */
@@ -31,8 +29,8 @@ struct proc {
 
   char p_priority;		/* current process priority */
   u64_t p_cpu_time_left;	/* time left to use the cpu */
-  unsigned p_quantum_size_ms;	/* assigned time quantum in ms
-				   FIXME remove this */
+  unsigned p_quantum_size_ms;	/* assigned time quantum in ms FIXME remove this */
+  unsigned int p_remaining_time;
   struct proc *p_scheduler;	/* who should get out of quantum msg */
   unsigned p_cpu;		/* what CPU is the process running on */
 #ifdef CONFIG_SMP
