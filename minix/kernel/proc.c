@@ -57,7 +57,7 @@ static int deadlock(int function, register struct proc *caller,
 static int try_async(struct proc *caller_ptr);
 static int try_one(endpoint_t receive_e, struct proc *src_ptr,
 	struct proc *dst_ptr);
-static struct proc * (void);
+static struct proc * pick_proc(void);
 static void enqueue_head(struct proc *rp);
 
 /* all idles share the same idle_priv structure */
@@ -335,7 +335,7 @@ not_runnable_pick_new:
 	 * timer interrupt the execution resumes here and we can pick another
 	 * process. If there is still nothing runnable we "schedule" IDLE again
 	 */
-	while (!(p = ())) {
+	while (!(p = pick_proc())) {
 		idle();
 	}
 
