@@ -15,7 +15,7 @@
  * overall performance of the system. A large fraction of the code deals with
  * list manipulation. To make this both easy to understand and fast to execute 
  * pointer pointers are used throughout the code. Pointer pointers prevent
- * exceptions for the head or tail of a linked list.  
+ * exceptions for the head or tail of a linked list. 
  *
  *  node_t *queue, *new_node;	// assume these as global variables
  *  node_t **xpp = &queue; 	// get pointer pointer to head of queue 
@@ -134,7 +134,7 @@ void proc_init(void)
 		rp->p_scheduler = NULL;		/* no user space scheduler */
 		rp->p_priority = 0;		/* no priority */
 		rp->p_quantum_size_ms = 0;	/* no quantum size */
-		rp->p_remaining_time = 0;
+
 		/* arch-specific initialization */
 		arch_proc_reset(rp);
 	}
@@ -1606,7 +1606,7 @@ void enqueue(
  */
   int q = rp->p_priority;	 		/* scheduling queue to use */
   struct proc **rdy_head, **rdy_tail;
-
+  
   assert(proc_is_runnable(rp));
 
   assert(q >= 0);
@@ -1656,11 +1656,6 @@ void enqueue(
 #if DEBUG_SANITYCHECKS
   assert(runqueues_ok_local());
 #endif
-if (rp->p_quantum_size_ms > 0) {
-		rp->p_remaining_time = rp->p_quantum_size_ms;
-	} else {
-		rp->p_remaining_time = 10; /* Valor padrao de 10ms para processos sem quantum */
-	}
 }
 
 /*===========================================================================*
@@ -1761,7 +1756,7 @@ void dequeue(struct proc *rp)
       prev_xp = *xpp;				/* save previous in chain */
   }
 
-
+	
   /* Process accounting for scheduling */
   rp->p_accounting.dequeues++;
 
@@ -1783,39 +1778,40 @@ void dequeue(struct proc *rp)
   assert(runqueues_ok_local());
 #endif
 }
+
 /*===========================================================================*
  *				pick_proc				     * 
  *===========================================================================*/
 static struct proc * pick_proc(void)
 {
-/* MODIFICACAO SRTF - MODO "TESTE DE FUMAÇA" */
-/* Esta é a versão mais simples possível para ver se o sistema consegue
- * chamar esta função e sobreviver. Ela usa a lógica original do Minix.
- * Se o sistema iniciar com este código, o problema está 100% na forma
- * como estávamos tentando ler as filas de processos.
+/* Decide who to run now.  A new process is selected and returned.
+ * When a billable process is selected, record it in 'bill_ptr', so that the 
+ * clock task can tell who to bill for system time.
+ *
+ * This function always uses the run queues of the local cpu!
  */
-    struct proc **rdy_head;
-    struct proc *rp;
-    int q;
+  register struct proc *rp;			/* process to run */
+  struct proc **rdy_head;
+  int q;				/* iterate over queues */
 
-    rdy_head = get_cpulocal_var(run_q_head);
-    
-    /* Tenta escolher um processo usando a lógica original do Minix */
-    for (q=0; q < NR_SCHED_QUEUES; q++) {	
-        if((rp = rdy_head[q])) {
-            /* Se encontrou um, retorna imediatamente */
-            assert(proc_is_runnable(rp));
-            if (priv(rp)->s_flags & BILLABLE)	 	
-                get_cpulocal_var(bill_ptr) = rp;
-            return rp;
-        }
-    }
-
-    /* Se não encontrou absolutamente ninguém, retorna NULL.
-     * A função switch_to_user() vai chamar idle() neste caso.
-     */
-    return NULL;
+  /* Check each of the scheduling queues for ready processes. The number of
+   * queues is defined in proc.h, and priorities are set in the task table.
+   * If there are no processes ready to run, return NULL.
+   */
+  rdy_head = get_cpulocal_var(run_q_head);
+  for (q=0; q < NR_SCHED_QUEUES; q++) {	
+	if(!(rp = rdy_head[q])) {
+		TRACE(VF_PICKPROC, printf("cpu %d queue %d empty\n", cpuid, q););
+		continue;
+	}
+	assert(proc_is_runnable(rp));
+	if (priv(rp)->s_flags & BILLABLE)	 	
+		get_cpulocal_var(bill_ptr) = rp; /* bill for system time */
+	return rp;
+  }
+  return NULL;
 }
+
 /*===========================================================================*
  *				endpoint_lookup				     *
  *===========================================================================*/
